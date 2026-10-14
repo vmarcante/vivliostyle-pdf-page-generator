@@ -20,3 +20,23 @@ async def test_oversized_content_length_returns_413(client):
         headers={"content-length": str(_MAX_REQUEST_SIZE + 1)},
     )
     assert response.status_code == 413
+
+
+async def test_warmup_failure_does_not_crash_server(monkeypatch):
+    """Falha no warmup não deve impedir o servidor de responder."""
+    import pytest_asyncio
+    from httpx import AsyncClient, ASGITransport
+    from app.application import service as svc_module
+
+    # Simula Vivliostyle indisponível
+    async def failing_run_cli(*args, **kwargs):
+        raise RuntimeError("vivliostyle não encontrado")
+
+    monkeypatch.setattr(svc_module, "run_cli", failing_run_cli)
+
+    from app.main import app as fastapi_app
+    transport = ASGITransport(app=fastapi_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        response = await ac.get("/health")
+
+    assert response.status_code == 200

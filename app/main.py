@@ -1,3 +1,7 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
@@ -5,6 +9,39 @@ from app.presentation.routes import router
 
 _MAX_REQUEST_SIZE = 100 * 1024 * 1024  # 100 MB
 
+_logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Warmup
+# ---------------------------------------------------------------------------
+
+async def _warmup() -> None:
+    """Aquece o Vivliostyle/Chromium renderizando um PDF de demonstração.
+
+    Executado em background logo após o startup para que a primeira
+    requisição real não sofra a penalidade de cold-start do Chromium
+    (tipicamente ~17 s na primeira chamada, ~3 s nas seguintes).
+    """
+    from app.application.service import RenderService
+    try:
+        _logger.info("Warmup iniciado — pré-aquecendo Vivliostyle...")
+        await RenderService().render_demo()
+        _logger.info("Warmup concluído — Vivliostyle pronto")
+    except Exception as exc:
+        _logger.warning("Warmup falhou (servidor continua disponível): %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Dispara o warmup em background sem bloquear o startup
+    asyncio.create_task(_warmup())
+    yield
+
+
+# ---------------------------------------------------------------------------
+# Middleware de limite de tamanho
+# ---------------------------------------------------------------------------
 
 class LimitUploadSizeMiddleware:
     """Rejeita requisições com corpo maior que *max_bytes*.
@@ -77,6 +114,10 @@ class LimitUploadSizeMiddleware:
         await send({"type": "http.response.body", "body": body})
 
 
+# ---------------------------------------------------------------------------
+# Aplicação
+# ---------------------------------------------------------------------------
+
 app = FastAPI(
     title="Geração de PDF API",
     version="1.0.0",
@@ -88,6 +129,7 @@ app = FastAPI(
     openapi_url="/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 app.add_middleware(LimitUploadSizeMiddleware, max_bytes=_MAX_REQUEST_SIZE)
