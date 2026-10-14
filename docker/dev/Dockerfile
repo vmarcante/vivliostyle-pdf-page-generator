@@ -28,6 +28,7 @@ RUN mkdir -p /app \
 RUN npm i -g @vivliostyle/cli@9.7.2
 
 # Instala dependências de desenvolvimento (inclui ferramentas de teste)
+COPY requirements.txt     /app/requirements.txt
 COPY requirements-dev.txt /app/requirements-dev.txt
 RUN pip3 install --no-cache-dir -r /app/requirements-dev.txt
 
