@@ -17,7 +17,6 @@ def override_service(monkeypatch):
     monkeypatch.setattr(routes, "service", DummyService())
 
 
-@pytest.mark.asyncio
 async def test_render_returns_pdf(client):
     files = {
         "src/cover.html": ("cover.html", b"<html><body>demo</body></html>", "text/html"),
@@ -29,13 +28,11 @@ async def test_render_returns_pdf(client):
     assert content.startswith(b"%PDF-1.4")
 
 
-@pytest.mark.asyncio
 async def test_render_requires_files(client):
     response = await client.post("/render", files={})
     assert response.status_code == 400
 
 
-@pytest.mark.asyncio
 async def test_render_demo_returns_pdf(client):
     response = await client.post("/render/demo")
     assert response.status_code == 200
@@ -44,28 +41,26 @@ async def test_render_demo_returns_pdf(client):
     assert content.startswith(b"%PDF-1.4")
 
 
-@pytest.mark.asyncio
 async def test_render_ignores_non_file_fields(client):
-    # envia um campo de texto normal (não arquivo) para acionar o except/continue
+    # envia um campo de texto normal (não arquivo) para acionar o filtro isinstance
     response = await client.post("/render", data={"foo": "bar"})
-    # nenhum arquivo válido -> mesma validação de 400
+    # nenhum arquivo válido -> 400
     assert response.status_code == 400
 
 
-@pytest.mark.asyncio
 async def test_render_runtime_error_returns_422(client, monkeypatch):
     """RuntimeError do serviço deve resultar em 422 com detalhe legível."""
 
     class FailingService:
         async def render_from_items(self, items):
-            raise RuntimeError("Vivliostyle failed (exit 1)")
+            raise RuntimeError("Vivliostyle falhou (exit 1)")
 
         async def render_demo(self):
-            raise RuntimeError("Demo failed")
+            raise RuntimeError("Falha na demo")
 
     monkeypatch.setattr(routes, "service", FailingService())
 
     files = {"src/cover.html": ("cover.html", b"<html></html>", "text/html")}
     response = await client.post("/render", files=files)
     assert response.status_code == 422
-    assert "Vivliostyle failed" in response.json()["detail"]
+    assert "Vivliostyle falhou" in response.json()["detail"]

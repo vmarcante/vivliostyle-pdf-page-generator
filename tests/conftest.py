@@ -1,7 +1,5 @@
-import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
-from fastapi import FastAPI
 
 from app.main import app as fastapi_app
 

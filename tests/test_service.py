@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -7,9 +6,21 @@ from app.application.service import RenderService
 
 
 class DummyWorkspace:
+    """Workspace falso para isolar os testes do sistema de arquivos temporário.
+
+    Implementa o context manager (``with DummyWorkspace() as ws:``) para
+    compatibilidade com a forma como ``RenderService`` usa ``TempWorkspace``.
+    """
+
     def __init__(self, base: Path):
         self.path = base
         self.cleaned = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.cleanup()
 
     def write_items(self, items):
         paths = []
@@ -24,7 +35,6 @@ class DummyWorkspace:
         self.cleaned = True
 
 
-@pytest.mark.asyncio
 async def test_render_from_items_uses_existing_out_pdf(tmp_path, monkeypatch):
     ws = DummyWorkspace(tmp_path)
     out = tmp_path / "out.pdf"
@@ -34,7 +44,6 @@ async def test_render_from_items_uses_existing_out_pdf(tmp_path, monkeypatch):
         return ws
 
     async def fake_run_cli(workdir, cfg, out_pdf):
-        # não cria nada, usa o out.pdf já existente
         assert workdir == tmp_path
 
     def fake_generate_config(workdir):
@@ -53,7 +62,6 @@ async def test_render_from_items_uses_existing_out_pdf(tmp_path, monkeypatch):
     assert ws.cleaned is True
 
 
-@pytest.mark.asyncio
 async def test_render_from_items_falls_back_to_first_pdf(tmp_path, monkeypatch):
     ws = DummyWorkspace(tmp_path)
 
@@ -82,7 +90,6 @@ async def test_render_from_items_falls_back_to_first_pdf(tmp_path, monkeypatch):
     assert ws.cleaned is True
 
 
-@pytest.mark.asyncio
 async def test_render_from_items_does_not_return_preexisting_pdf(tmp_path, monkeypatch):
     """PDFs enviados pelo cliente não devem ser devolvidos como resultado."""
     ws = DummyWorkspace(tmp_path)
@@ -109,13 +116,12 @@ async def test_render_from_items_does_not_return_preexisting_pdf(tmp_path, monke
 
     service = RenderService()
 
-    with pytest.raises(RuntimeError, match="PDF not generated"):
+    with pytest.raises(RuntimeError, match="PDF não gerado"):
         await service.render_from_items([("uploaded.pdf", b"UPLOADED")])
 
     assert ws.cleaned is True
 
 
-@pytest.mark.asyncio
 async def test_render_from_items_raises_when_no_pdf(tmp_path, monkeypatch):
     ws = DummyWorkspace(tmp_path)
 
@@ -138,22 +144,19 @@ async def test_render_from_items_raises_when_no_pdf(tmp_path, monkeypatch):
 
     service = RenderService()
 
-    with pytest.raises(RuntimeError, match="PDF not generated"):
+    with pytest.raises(RuntimeError, match="PDF não gerado"):
         await service.render_from_items([("src/cover.html", b"<html></html>")])
 
     assert ws.cleaned is True
 
 
-@pytest.mark.asyncio
 async def test_render_demo_uses_demo_project(tmp_path, monkeypatch):
     ws = DummyWorkspace(tmp_path)
-    out = tmp_path / "out.pdf"
 
     def fake_temp_workspace():
         return ws
 
     def fake_build_demo_project(workdir):
-        # cria arquivos de demo
         (workdir / "src").mkdir(parents=True, exist_ok=True)
         (workdir / "src" / "cover.html").write_text("demo", encoding="utf-8")
 

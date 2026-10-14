@@ -7,22 +7,22 @@ from app.infrastructure.workdir import TempWorkspace
 from app.infrastructure.vivlio import generate_config, run_cli, build_demo_project
 
 
-def test_temp_workspace_writes_items():
-    ws = TempWorkspace()
-    try:
+def test_temp_workspace_context_manager():
+    """O context manager deve fornecer o workspace e limpar ao sair."""
+    with TempWorkspace() as ws:
+        assert ws.path.exists()
         items = [("src/cover.html", b"<html><body>ok</body></html>")]
         saved = ws.write_items(items)
         assert len(saved) == 1
         assert saved[0].exists()
         assert saved[0].read_bytes() == items[0][1]
-    finally:
-        ws.cleanup()
+    # Após o `with`, o diretório deve ter sido removido
+    assert not ws.path.exists()
 
 
 def test_write_items_blocks_path_traversal():
     """Caminhos que tentam escapar do workspace devem ser redirecionados."""
-    ws = TempWorkspace()
-    try:
+    with TempWorkspace() as ws:
         items = [
             ("../../evil.txt", b"evil"),
             ("subdir/../../../escape.txt", b"escape"),
@@ -32,8 +32,6 @@ def test_write_items_blocks_path_traversal():
         for p in saved:
             # Todos os arquivos devem estar dentro do workspace
             p.relative_to(workspace)  # levanta ValueError se escapar
-    finally:
-        ws.cleanup()
 
 
 def test_generate_config_creates_file(tmp_path: Path):
@@ -55,6 +53,19 @@ def test_generate_config_creates_file(tmp_path: Path):
     assert "theme.css" in text
 
 
+def test_generate_config_cover_comes_first(tmp_path: Path):
+    """cover.html deve sempre ser o primeiro entry no config."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "aaa.html").write_text("<html></html>", encoding="utf-8")
+    (src / "cover.html").write_text("<html></html>", encoding="utf-8")
+
+    cfg = generate_config(tmp_path)
+    text = cfg.read_text(encoding="utf-8")
+
+    assert text.index("cover.html") < text.index("aaa.html")
+
+
 def test_generate_config_falls_back_to_root_html(tmp_path: Path):
     # sem diretório src, deve usar HTMLs na raiz
     (tmp_path / "root.html").write_text("<html></html>", encoding="utf-8")
@@ -65,7 +76,6 @@ def test_generate_config_falls_back_to_root_html(tmp_path: Path):
     assert "root.html" in text
 
 
-@pytest.mark.asyncio
 async def test_run_cli_raises_on_nonzero_exit(tmp_path: Path, monkeypatch):
     async def fake_subprocess_exec(*cmd, **kwargs):
         class DummyProc:
@@ -83,24 +93,22 @@ async def test_run_cli_raises_on_nonzero_exit(tmp_path: Path, monkeypatch):
     cfg.write_text("cfg", encoding="utf-8")
     out_pdf = tmp_path / "out.pdf"
 
-    with pytest.raises(RuntimeError, match="Vivliostyle failed"):
+    with pytest.raises(RuntimeError, match="Vivliostyle falhou"):
         await run_cli(tmp_path, cfg, out_pdf)
 
 
-@pytest.mark.asyncio
 async def test_run_cli_raises_on_timeout(tmp_path: Path, monkeypatch):
     async def fake_subprocess_exec(*cmd, **kwargs):
         class SlowProc:
             def __init__(self):
                 self.returncode = None
-                self._killed = False
 
             async def communicate(self):
                 await asyncio.sleep(9999)
                 return (b"", None)
 
             def kill(self):
-                self._killed = True
+                pass
 
             async def wait(self):
                 pass

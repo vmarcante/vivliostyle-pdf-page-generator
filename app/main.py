@@ -11,6 +11,14 @@ class LimitUploadSizeMiddleware:
 
     Cobre tanto uploads com ``Content-Length`` explícito quanto
     transferências ``chunked`` (sem esse cabeçalho).
+
+    Funcionamento para chunked:
+
+    1. O receive wrapper conta os bytes recebidos e, ao ultrapassar o
+       limite, sinaliza fim de stream (``more_body=False``) para que o
+       parser multipart pare de consumir dados.
+    2. O send wrapper intercepta o início da resposta e a substitui por
+       413 antes que qualquer byte seja enviado ao cliente.
     """
 
     def __init__(self, app, max_bytes: int):
@@ -55,9 +63,9 @@ class LimitUploadSizeMiddleware:
 
         await self.app(scope, limited_receive, checked_send)
 
-    @staticmethod
-    async def _send_413(send) -> None:
-        body = "Requisição excede o limite de 100 MB".encode("utf-8")
+    async def _send_413(self, send) -> None:
+        mb = self.max_bytes // (1024 * 1024)
+        body = f"Requisição excede o limite de {mb} MB".encode("utf-8")
         await send({
             "type": "http.response.start",
             "status": 413,
